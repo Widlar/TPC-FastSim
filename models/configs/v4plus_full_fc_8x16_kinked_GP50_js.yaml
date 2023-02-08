@@ -47,7 +47,7 @@ architecture:
                 )"
             ]
             kernel_init: 'glorot_uniform'
-            input_shape: [39,]
+            input_shape: [32,]
             output_shape: [8, 16]
             name: 'generator'
 
