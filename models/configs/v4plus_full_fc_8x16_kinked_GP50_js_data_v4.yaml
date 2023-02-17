@@ -47,7 +47,7 @@ architecture:
                 )"
             ]
             kernel_init: 'glorot_uniform'
-            input_shape: [39,]
+            input_shape: [37,]
             output_shape: [8, 16]
             name: 'generator'
 
@@ -77,6 +77,6 @@ architecture:
             units: [128, 1]
             activations: ['elu', NULL]
             kernel_init: 'glorot_uniform'
-            input_shape: [71,]
+            input_shape: [69,]
             output_shape: NULL
             name: 'discriminator_head'
