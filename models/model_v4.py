@@ -70,7 +70,7 @@ def gen_loss_js(d_real, d_fake):
 class Model_v4:
     def __init__(self, config):
         self._f = preprocess_features
-        if config['data_version'] == 'data_v4plus':
+        if config['data_version'] == 'data_v4plus' or config['data_version'] == 'data_v4':
             self.full_feature_space = config.get('full_feature_space', False)
             self.include_pT_for_evaluation = config.get('include_pT_for_evaluation', False)
             if self.full_feature_space:
