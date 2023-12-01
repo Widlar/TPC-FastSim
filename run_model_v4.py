@@ -71,6 +71,8 @@ def main():
 
     config_path = str(model_path / 'config.yaml')
     continue_training = False
+
+    # train or prediction
     if args.prediction_only:
         assert model_path.exists(), "Couldn't find model directory"
         assert not args.config, "Config should be read from model path when doing prediction"
@@ -94,6 +96,7 @@ def main():
         next_epoch = load_weights(model, model_path) + 1
 
     preprocessing._VERSION = model.data_version
+    # get data
     data, features = preprocessing.read_csv_2d(pad_range=model.pad_range, time_range=model.time_range, strict=False)
     features = features.astype('float32')
 

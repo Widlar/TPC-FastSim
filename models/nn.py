@@ -35,6 +35,20 @@ def fully_connected_block(
             layers.append(tf.keras.layers.Dropout(dropouts[i]))
 
     if output_shape:
+        # Предполагаем, что размер пакета (batch_size) не известен
+        for unit in units:
+            print(f"Количество элементов в слое {unit}")
+        expected_num_elements = units[-1]  # Количество элементов от последнего Dense слоя
+        actual_num_elements = np.prod(output_shape)  # Произведение размерностей в output_shape
+
+        if expected_num_elements != actual_num_elements:
+            print(f"Warning: Mismatch in number of elements before and after Reshape. "
+                  f"Expected: {expected_num_elements}, but got: {actual_num_elements}")
+
+        # вся проблема в это слое
+        # layers.append(tf.keras.layers.Reshape(output_shape))
+        layers.append(tf.keras.layers.Flatten())
+        layers.append(tf.keras.layers.Dense(np.prod(output_shape)  , activation='elu'))  # Измененный последний Dense слой
         layers.append(tf.keras.layers.Reshape(output_shape))
 
     args = {}
@@ -138,6 +152,7 @@ def conv_block(
             layers.append(tf.keras.layers.MaxPool2D(pool))
 
     if output_shape:
+        print('output_shape:', output_shape)
         layers.append(tf.keras.layers.Reshape(output_shape))
 
     args = {}
@@ -151,19 +166,36 @@ def vector_img_connect_block(vector_shape, img_shape, block, vector_bypass=False
     vector_shape = tuple(vector_shape)
     img_shape = tuple(img_shape)
 
-    assert len(vector_shape) == 1
+    # Mokhnenko
+    # assert len(vector_shape) == 1
     assert 2 <= len(img_shape) <= 3
 
+    # (None, 7)
     input_vec = tf.keras.Input(shape=vector_shape)
+    # (None, 8, 16)
     input_img = tf.keras.Input(shape=img_shape)
 
+    # (None, 8, 16, 1)
     block_input = input_img
     if len(img_shape) == 2:
+        # (None, 8, 16, 1)
         block_input = tf.keras.layers.Reshape(img_shape + (1,))(block_input)
     if not vector_bypass:
-        reshaped_vec = tf.tile(tf.keras.layers.Reshape((1, 1) + vector_shape)(input_vec), (1, *img_shape[:2], 1))
+        block_input = tf.keras.layers.Reshape(img_shape + (1,))(block_input)
+        # (None, 1, 1, 7)
+        temp_var1 = tf.keras.layers.Reshape((1, 1, 1) + vector_shape)(input_vec)
+        # (1, 8 , 16, 1)
+        temp_var2 = (1, *img_shape[:3], 1)
+        # ошибка возникает вот тут
+        # (None, 8 , 16, 7)
+        reshaped_vec = tf.tile(tf.keras.layers.Reshape((1, 1, 1) + vector_shape)(input_vec), (1, *img_shape[:3], 1))
         block_input = tf.keras.layers.Concatenate(axis=-1)([block_input, reshaped_vec])
+        # получаеся форма входа [None, 8, 16, 3, 8] а была
+        # shape[0] = [32,7,3] vs. shape[1] = [32,64]
+        # Добавляем новое измерение к reshaped_vec
+        # reshaped_vec = tf.expand_dims(reshaped_vec, axis=-1)
 
+    # сюда вставляется свернточная нейросетка
     block_output = block(block_input)
 
     outputs = [input_vec, block_output]
@@ -184,6 +216,7 @@ def build_block(block_type, arguments):
     elif block_type == 'conv':
         block = conv_block(**arguments)
     elif block_type == 'connect':
+        # здесь добавляется сверточная
         inner_block = build_block(**arguments['block'])
         arguments['block'] = inner_block
         block = vector_img_connect_block(**arguments)

@@ -114,8 +114,12 @@ def make_images_for_model(
     model, sample, return_raw_data=False, calc_chi2=False, gen_more=None, batch_size=128, pdf_outputs=None
 ):
     X, Y = sample
-    assert X.ndim == 2
+
+    # else:
+        #  assert X.ndim == 2
     if model.data_version == 'data_v4plus':
+        assert X.shape[1] == 6
+    elif model.data_version == 'data_v5':
         assert X.shape[1] == 6
     else:
         assert X.shape[1] == 4
@@ -128,6 +132,7 @@ def make_images_for_model(
         gen_features = X
     else:
         gen_features = np.tile(X, [gen_more] + [1] * (X.ndim - 1))
+        temp_var = [model.make_fake(gen_features[i : i + batch_size]).numpy() for i in range(0, len(gen_features), batch_size)]
     gen_scaled = np.concatenate(
         [model.make_fake(gen_features[i : i + batch_size]).numpy() for i in range(0, len(gen_features), batch_size)],
         axis=0,

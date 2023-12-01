@@ -11,3 +11,4 @@ saved_models/
 .bash_history
 .python_history
 *.pbtxt
+/temp_scripts/

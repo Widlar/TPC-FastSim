@@ -33,6 +33,25 @@ def preprocess_features_v4plus(features):
     features_3 = features[:, 5:6] / 2.5
     return tf.concat([features_1, features_2, features_3, bin_fractions], axis=-1)
 
+@tf.function(experimental_relax_shapes=True)
+def preprocess_features_v5(features):
+    # features shape expected: (batch_size, num_features, 3) where num_features = 6
+    # Проверяем, что второе измерение имеет 6 признаков
+    assert features.shape[1] == 6
+
+    # Разделяем обработку для каждого элемента в тройке
+    processed_features = []
+    for i in range(3):  # Обходим тройку
+        current_features = features[:, :, i]
+        bin_fractions = current_features[:, 2:4] % 1
+        features_1 = (current_features[:, :3] - tf.constant([[0.0, 0.0, 162.5]])) / tf.constant([[20.0, 60.0, 127.5]])
+        features_2 = tf.cast(current_features[:, 4:5] >= 27, tf.float32)
+        features_3 = current_features[:, 5:6] / 2.5
+        processed = tf.concat([features_1, features_2, features_3, bin_fractions], axis=-1)
+        processed_features.append(processed)
+
+    # Объединяем обработанные тройки обратно в один тензор
+    return tf.stack(processed_features, axis=-1)
 
 def disc_loss(d_real, d_fake):
     return tf.reduce_mean(d_fake - d_real)
@@ -75,7 +94,13 @@ class Model_v4:
             self.include_pT_for_evaluation = config.get('include_pT_for_evaluation', False)
             if self.full_feature_space:
                 self._f = preprocess_features_v4plus
+        if  config['data_version'] == 'data_v5':
+            self.full_feature_space = config.get('full_feature_space', False)
+            self.include_pT_for_evaluation = config.get('include_pT_for_evaluation', False)
+            if self.full_feature_space:
+                self._f = preprocess_features_v5
 
+        self.config = config
         self.disc_opt = tf.keras.optimizers.RMSprop(config['lr_disc'])
         self.gen_opt = tf.keras.optimizers.RMSprop(config['lr_gen'])
         self.gp_lambda = config['gp_lambda']
@@ -143,11 +168,37 @@ class Model_v4:
             opt_weight_values = hdf5_format.load_optimizer_weights_from_hdf5_group(model_file)
             network.optimizer.set_weights(opt_weight_values)
 
-    @tf.function
+    # @tf.function
     def make_fake(self, features):
         size = tf.shape(features)[0]
-        latent_input = tf.random.normal(shape=(size, self.latent_dim), dtype='float32')
-        return self.generator(tf.concat([self._f(features), latent_input], axis=-1))
+        if self.data_version == 'data_v5':
+            processed_features = self._f(features)  # Обработка features
+            # Убедитесь, что processed_features имеет размерность [128, X, 3]
+
+            # Генерация latent_input
+            latent_input = tf.random.normal(shape=(size, self.latent_dim, 3), dtype='float32')
+
+            # Конкатенация processed_features и latent_input
+            concatenated = tf.concat([processed_features, latent_input], axis=1)
+        else:
+            latent_input = tf.random.normal(shape=(size, self.latent_dim), dtype='float32')
+            concatenated = tf.concat([self._f(features), latent_input], axis=1)
+        architecture_descr = self.config['architecture']
+        temp_generator = nn.build_architecture(
+            architecture_descr['generator'], custom_objects_code=self.config.get('custom_objects', None)
+        )
+
+        generator_layer = temp_generator.get_layer('generator')
+        num_inbound_nodes = len(generator_layer.inbound_nodes)
+
+        for layer in range(0, num_inbound_nodes):
+            input_shape_node_0 = generator_layer.get_input_shape_at(layer)
+            output_shape = generator_layer.get_output_shape_at(layer)
+            print(f"shape at node {layer}:", input_shape_node_0, output_shape)
+
+            #print(layer.name, layer.input_shape, layer.output_shape)
+        print(temp_generator.summary())
+        return self.generator(concatenated)
 
     def gradient_penalty(self, features, real, fake):
         alpha = tf.random.uniform(shape=[len(real)] + [1] * (len(real.shape) - 1))
@@ -167,9 +218,11 @@ class Model_v4:
         grads = tf.reshape(t.gradient(d_real, real), [len(real), -1])
         return tf.reduce_mean(tf.reduce_sum(grads**2, axis=-1))
 
-    @tf.function
+   #  @tf.function
     def calculate_losses(self, feature_batch, target_batch):
         fake = self.make_fake(feature_batch)
+        print(self.discriminator.summary())
+        temp_var= self._f(feature_batch)
         d_real = self.discriminator([self._f(feature_batch), target_batch])
         d_fake = self.discriminator([self._f(feature_batch), fake])
         if self.cramer:
@@ -220,7 +273,7 @@ class Model_v4:
         self.gen_opt.apply_gradients(zip(grads, self.generator.trainable_variables))
         return losses
 
-    @tf.function
+    # @tf.function
     def training_step(self, feature_batch, target_batch):
         if self.stochastic_stepping:
             if tf.random.uniform(shape=[], dtype='int32', maxval=self.num_disc_updates + 1) == self.num_disc_updates:
